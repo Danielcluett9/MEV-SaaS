@@ -1,0 +1,23 @@
+@import "tailwindcss";
+
+/* Custom MEV Analytics styling */
+@layer base {
+  body {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    background-color: #f8fafc;
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-white rounded-xl shadow-lg p-6;
+  }
+  
+  .stat-card {
+    @apply bg-gradient-to-r rounded-xl p-6 text-white;
+  }
+  
+  .btn-primary {
+    @apply bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg font-medium transition-all;
+  }
+}

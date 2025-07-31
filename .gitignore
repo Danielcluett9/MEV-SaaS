@@ -1,0 +1,47 @@
+# Compiled files
+*.class
+target/
+build/
+dist/
+.mvn/
+
+# IDE files
+.vscode/
+.idea/
+*.iml
+*.swp
+*.swo
+
+# Environment files
+.env*
+application-*.yml
+application-*.properties
+
+# Logs
+*.log
+logs/
+
+# Database
+*.db
+*.sqlite
+
+# Node modules
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+
+# Sensitive data
+config/secrets.yml
+*.pem
+*.key
+.env.local
+.env.production
