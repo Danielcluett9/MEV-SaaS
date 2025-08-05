@@ -26,7 +26,7 @@ public class MEVDetectionService {
     @Value("${mev.detection.scan-latest-blocks:50}")
     private int scanLatestBlocks;
     
-    @Value("${mev.detection.min-profit-usd:1.0}")
+    @Value("${mev.detection.min-profit-usd:0.1}")
     private double minProfitUsd;
     
     @Value("${dex.uniswap-v2}")

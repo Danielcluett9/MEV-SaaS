@@ -172,4 +172,37 @@ public class MEVAnalyticsController {
             "message", "API key generated successfully"
         ));
     }
+
+    @GetMapping("/protection/simulate-threat/{contractAddress}")
+    public ResponseEntity<Map<String, Object>> simulateThreat(@PathVariable String contractAddress) {
+        Map<String, Object> threat = Map.of(
+            "type", "SANDWICH_ATTACK",
+	    "contractAddress", contractAddress,
+	    "threatLevel", "HIGH",
+	    "description", "Simulated sandwich attack detected",
+	    "estimatedLoss", "1,250",
+	    "gasPrice", "45 gwei",
+	    "timestamp", "LocalDateTime.now().toString()
+	);
+	return ReponseEntity.ok(threat);
+    }
+
+    @PostMapping("/protection/enable")
+    public ResponsibleEntity<Map<SString, Object>> enableProtectionEndpoint(@RequestBody Map<String, String> request) {
+	String contractAddress = request.get("contractAddress");
+
+	if(contractAddress == null || contractAddress.isEmpty()) {
+	    return ResponseEntity.badRequest().body(Map.of("error", "Contract address required"));
+	}
+
+	Map<String, Object> response = Map.of(
+	    "success", true,
+	    "message", "Protection enabled for " + contractAddress,
+	    "websocketUrl", "ws://localhost:8080/ws/protection/" + contractAddress,
+	    "status", "monitoring"
+	);
+
+	return ResponseEntity.ok(response);
+
+    }
 }

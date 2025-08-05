@@ -219,6 +219,10 @@ public class EthereumService {
         }
         return rpcUrl.contains("alchemy") ? "Alchemy RPC" : "Public RPC";
     }
+
+    public Web3j getWeb3j() {
+       return web3j;
+    }
     
     @PreDestroy
     public void cleanup() {

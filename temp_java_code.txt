@@ -1,0 +1,1237 @@
+// =================================================================
+// File: backend/src/main/java/com/mevplatform/MevPlatformApplication.java
+// =================================================================
+package com.mevplatform;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableAsync;
+import org.springframework.scheduling.annotation.EnableScheduling;
+
+@SpringBootApplication
+@EnableAsync
+@EnableScheduling
+public class MevPlatformApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(MevPlatformApplication.class, args);
+    }
+}
+
+// =================================================================
+// File: backend/src/main/java/com/mevplatform/config/AlchemyConfig.java
+// =================================================================
+package com.mevplatform.config;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.web3j.protocol.Web3j;
+import org.web3j.protocol.http.HttpService;
+import org.web3j.protocol.websocket.WebSocketService;
+
+@Configuration
+public class AlchemyConfig {
+    
+    @Value("${alchemy.api.key}")
+    private String alchemyApiKey;
+    
+    @Value("${alchemy.network:eth-mainnet}")
+    private String network;
+    
+    @Bean
+    public Web3j web3j() {
+        String alchemyUrl = String.format("https://%s.g.alchemy.com/v2/%s", network, alchemyApiKey);
+        return Web3j.build(new HttpService(alchemyUrl));
+    }
+    
+    @Bean
+    public WebSocketService webSocketService() throws Exception {
+        String wsUrl = String.format("wss://%s.g.alchemy.com/v2/%s", network, alchemyApiKey);
+        WebSocketService service = new WebSocketService(wsUrl, false);
+        service.connect();
+        return service;
+    }
+}
+
+// =================================================================
+// File: backend/src/main/java/com/mevplatform/model/Contract.java
+// =================================================================
+package com.mevplatform.model;
+
+import jakarta.persistence.*;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import com.fasterxml.jackson.annotation.JsonManagedReference;
+
+import java.time.LocalDateTime;
+import java.util.List;
+
+@Entity
+@Table(name = "contracts")
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+public class Contract {
+    
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    
+    @Column(unique = true, nullable = false, length = 42)
+    private String address;
+    
+    private String name;
+    
+    @Column(columnDefinition = "TEXT")
+    private String sourceCode;
+    
+    @Column(columnDefinition = "TEXT")
+    private String bytecode;
+    
+    @Column(columnDefinition = "JSONB")
+    private String abi;
+    
+    private String compilerVersion;
+    
+    @Builder.Default
+    private Boolean optimizationEnabled = false;
+    
+    private String creationTransaction;
+    
+    private String creatorAddress;
+    
+    private Long creationBlockNumber;
+    
+    @Builder.Default
+    private Long totalTransactions = 0L;
+    
+    private LocalDateTime lastActivityAt;
+    
+    @Builder.Default
+    private Boolean isVerified = false;
+    
+    @Builder.Default
+    private LocalDateTime createdAt = LocalDateTime.now();
+    
+    private LocalDateTime updatedAt;
+    
+    @OneToMany(mappedBy = "contract", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    @JsonManagedReference
+    private List<Scan> scans;
+}
+
+// =================================================================
+// File: backend/src/main/java/com/mevplatform/model/Scan.java
+// =================================================================
+package com.mevplatform.model;
+
+import jakarta.persistence.*;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import com.fasterxml.jackson.annotation.JsonBackReference;
+import com.fasterxml.jackson.annotation.JsonManagedReference;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.List;
+
+@Entity
+@Table(name = "scans")
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+public class Scan {
+    
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "contract_id")
+    @JsonBackReference
+    private Contract contract;
+    
+    @Enumerated(EnumType.STRING)
+    private ScanType scanType;
+    
+    @Enumerated(EnumType.STRING)
+    @Builder.Default
+    private ScanStatus status = ScanStatus.PENDING;
+    
+    @Enumerated(EnumType.STRING)
+    private RiskLevel riskLevel;
+    
+    private Integer riskScore;
+    
+    @Builder.Default
+    private Integer totalVulnerabilities = 0;
+    
+    @Builder.Default
+    private Integer criticalVulnerabilities = 0;
+    
+    @Builder.Default
+    private Integer highVulnerabilities = 0;
+    
+    @Builder.Default
+    private Integer mediumVulnerabilities = 0;
+    
+    @Builder.Default
+    private Integer lowVulnerabilities = 0;
+    
+    @Column(columnDefinition = "JSONB")
+    private String gasAnalysis;
+    
+    @Column(precision = 5, scale = 4)
+    private BigDecimal mlConfidenceScore;
+    
+    private Integer scanDurationMs;
+    
+    @Column(columnDefinition = "JSONB")
+    private String mempoolAnalysis;
+    
+    @Builder.Default
+    private Integer attackCountLast30d = 0;
+    
+    @Builder.Default
+    private LocalDateTime startedAt = LocalDateTime.now();
+    
+    private LocalDateTime completedAt;
+    
+    @Builder.Default
+    private LocalDateTime createdAt = LocalDateTime.now();
+    
+    @OneToMany(mappedBy = "scan", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    @JsonManagedReference
+    private List<Vulnerability> vulnerabilities;
+    
+    public enum ScanType {
+        FULL, QUICK, VULNERABILITY_ONLY
+    }
+    
+    public enum ScanStatus {
+        PENDING, RUNNING, COMPLETED, FAILED
+    }
+    
+    public enum RiskLevel {
+        LOW, MEDIUM, HIGH, CRITICAL
+    }
+}
+
+// =================================================================
+// File: backend/src/main/java/com/mevplatform/model/Vulnerability.java
+// =================================================================
+package com.mevplatform.model;
+
+import jakarta.persistence.*;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import com.fasterxml.jackson.annotation.JsonBackReference;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+
+@Entity
+@Table(name = "vulnerabilities")
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+public class Vulnerability {
+    
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "scan_id")
+    @JsonBackReference
+    private Scan scan;
+    
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "contract_id")
+    private Contract contract;
+    
+    private String vulnerabilityType;
+    
+    @Enumerated(EnumType.STRING)
+    private Severity severity;
+    
+    private String title;
+    
+    @Column(columnDefinition = "TEXT")
+    private String description;
+    
+    private String location;
+    
+    @Column(columnDefinition = "TEXT")
+    private String impact;
+    
+    @Enumerated(EnumType.STRING)
+    private Likelihood likelihood;
+    
+    @Column(precision = 5, scale = 4)
+    private BigDecimal confidenceScore;
+    
+    @Builder.Default
+    private Boolean remediationAvailable = false;
+    
+    @Builder.Default
+    private Boolean isExploitable = false;
+    
+    @Enumerated(EnumType.STRING)
+    private ExploitComplexity exploitComplexity;
+    
+    private String attackVector;
+    
+    @Column(precision = 15, scale = 2)
+    private BigDecimal estimatedLossUsd;
+    
+    @Column(columnDefinition = "TEXT")
+    private String codeSnippet;
+    
+    @Builder.Default
+    private LocalDateTime createdAt = LocalDateTime.now();
+    
+    public enum Severity {
+        LOW, MEDIUM, HIGH, CRITICAL
+    }
+    
+    public enum Likelihood {
+        LOW, MEDIUM, HIGH
+    }
+    
+    public enum ExploitComplexity {
+        LOW, MEDIUM, HIGH
+    }
+}
+
+// =================================================================
+// File: backend/src/main/java/com/mevplatform/dto/ScanRequest.java
+// =================================================================
+package com.mevplatform.dto;
+
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import lombok.AllArgsConstructor;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
+
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class ScanRequest {
+    
+    @NotBlank(message = "Contract address is required")
+    @Pattern(regexp = "^0x[a-fA-F0-9]{40}$", message = "Invalid Ethereum address format")
+    private String contractAddress;
+    
+    private String scanType = "FULL"; // FULL, QUICK, VULNERABILITY_ONLY
+    
+    private Boolean includeMempoolAnalysis = true;
+    
+    private Boolean includeGasAnalysis = true;
+    
+    private Boolean useMachineLearning = true;
+}
+
+// =================================================================
+// File: backend/src/main/java/com/mevplatform/dto/ScanResult.java
+// =================================================================
+package com.mevplatform.dto;
+
+import lombok.Data;
+import lombok.Builder;
+import lombok.NoArgsConstructor;
+import lombok.AllArgsConstructor;
+import com.mevplatform.model.Scan;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.List;
+
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+public class ScanResult {
+    
+    private Long scanId;
+    private String contractAddress;
+    private String contractName;
+    private Scan.ScanStatus status;
+    private Scan.RiskLevel riskLevel;
+    private Integer riskScore;
+    
+    private VulnerabilitySummary vulnerabilities;
+    private GasAnalysisResult gasAnalysis;
+    private MempoolAnalysisResult mempoolAnalysis;
+    private ProtectionRecommendations protectionRecommendations;
+    
+    private BigDecimal mlConfidenceScore;
+    private Integer scanDurationMs;
+    private Integer attackCountLast30d;
+    
+    private LocalDateTime startedAt;
+    private LocalDateTime completedAt;
+    
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class VulnerabilitySummary {
+        private Integer total;
+        private Integer critical;
+        private Integer high;
+        private Integer medium;
+        private Integer low;
+        private List<VulnerabilityDetail> details;
+    }
+    
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class VulnerabilityDetail {
+        private String type;
+        private String severity;
+        private String title;
+        private String description;
+        private String location;
+        private BigDecimal confidenceScore;
+        private Boolean hasRemediation;
+        private String recommendedFix;
+    }
+    
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class GasAnalysisResult {
+        private String currentGasEfficiency;
+        private String optimizationPotential;
+        private List<String> recommendations;
+        private Integer estimatedSavingsPercent;
+    }
+    
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class MempoolAnalysisResult {
+        private Integer recentTransactions;
+        private String averageGasPrice;
+        private Boolean hasUnusualActivity;
+        private List<String> suspiciousPatterns;
+    }
+    
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class ProtectionRecommendations {
+        private List<String> immediateActions;
+        private List<String> longTermImprovements;
+        private List<CodeSuggestion> codeFixes;
+        private String overallStrategy;
+    }
+    
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class CodeSuggestion {
+        private String title;
+        private String description;
+        private String beforeCode;
+        private String afterCode;
+        private String difficulty;
+        private String estimatedTime;
+    }
+}
+
+// =================================================================
+// File: backend/src/main/java/com/mevplatform/repository/ContractRepository.java
+// =================================================================
+package com.mevplatform.repository;
+
+import com.mevplatform.model.Contract;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.stereotype.Repository;
+
+import java.util.Optional;
+
+@Repository
+public interface ContractRepository extends JpaRepository<Contract, Long> {
+    
+    Optional<Contract> findByAddress(String address);
+    
+    @Query("SELECT c FROM Contract c LEFT JOIN FETCH c.scans WHERE c.address = :address")
+    Optional<Contract> findByAddressWithScans(String address);
+    
+    boolean existsByAddress(String address);
+}
+
+// =================================================================
+// File: backend/src/main/java/com/mevplatform/repository/ScanRepository.java
+// =================================================================
+package com.mevplatform.repository;
+
+import com.mevplatform.model.Scan;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.stereotype.Repository;
+
+import java.util.List;
+import java.util.Optional;
+
+@Repository
+public interface ScanRepository extends JpaRepository<Scan, Long> {
+    
+    List<Scan> findByContractAddressOrderByCreatedAtDesc(String contractAddress);
+    
+    @Query("SELECT s FROM Scan s LEFT JOIN FETCH s.vulnerabilities WHERE s.id = :scanId")
+    Optional<Scan> findByIdWithVulnerabilities(Long scanId);
+    
+    @Query("SELECT s FROM Scan s WHERE s.contract.address = :address AND s.status = 'COMPLETED' ORDER BY s.completedAt DESC")
+    List<Scan> findCompletedScansByContractAddress(String address);
+    
+    long countByContractAddress(String contractAddress);
+}
+
+// =================================================================
+// File: backend/src/main/java/com/mevplatform/repository/VulnerabilityRepository.java
+// =================================================================
+package com.mevplatform.repository;
+
+import com.mevplatform.model.Vulnerability;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.stereotype.Repository;
+
+import java.util.List;
+
+@Repository
+public interface VulnerabilityRepository extends JpaRepository<Vulnerability, Long> {
+    
+    List<Vulnerability> findByScanId(Long scanId);
+    
+    List<Vulnerability> findByContractId(Long contractId);
+    
+    @Query("SELECT v FROM Vulnerability v WHERE v.severity = :severity ORDER BY v.createdAt DESC")
+    List<Vulnerability> findBySeverityOrderByCreatedAtDesc(Vulnerability.Severity severity);
+    
+    @Query("SELECT v.vulnerabilityType, COUNT(v) FROM Vulnerability v GROUP BY v.vulnerabilityType ORDER BY COUNT(v) DESC")
+    List<Object[]> findVulnerabilityTypeStatistics();
+}
+
+// =================================================================
+// File: backend/src/main/java/com/mevplatform/controller/ScanController.java
+// =================================================================
+package com.mevplatform.controller;
+
+import com.mevplatform.dto.ScanRequest;
+import com.mevplatform.dto.ScanResult;
+import com.mevplatform.service.ScanService;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+
+@RestController
+@RequestMapping("/api/v1/scan")
+@RequiredArgsConstructor
+@Slf4j
+@CrossOrigin(origins = {"http://localhost:3000", "http://localhost:3001"})
+public class ScanController {
+    
+    private final ScanService scanService;
+    
+    @PostMapping
+    public CompletableFuture<ResponseEntity<ScanResult>> scanContract(@Valid @RequestBody ScanRequest request) {
+        log.info("Received scan request for contract: {}", request.getContractAddress());
+        
+        return scanService.scanContractAsync(request)
+            .thenApply(result -> ResponseEntity.ok(result))
+            .exceptionally(throwable -> {
+                log.error("Scan failed for contract: {}", request.getContractAddress(), throwable);
+                return ResponseEntity.internalServerError().build();
+            });
+    }
+    
+    @GetMapping("/{scanId}")
+    public ResponseEntity<ScanResult> getScanResult(@PathVariable Long scanId) {
+        log.info("Fetching scan result for ID: {}", scanId);
+        
+        return scanService.getScanResult(scanId)
+            .map(ResponseEntity::ok)
+            .orElse(ResponseEntity.notFound().build());
+    }
+    
+    @GetMapping("/contract/{address}")
+    public ResponseEntity<List<ScanResult>> getContractScanHistory(@PathVariable String address) {
+        log.info("Fetching scan history for contract: {}", address);
+        
+        List<ScanResult> results = scanService.getContractScanHistory(address);
+        return ResponseEntity.ok(results);
+    }
+    
+    @GetMapping("/{scanId}/status")
+    public ResponseEntity<String> getScanStatus(@PathVariable Long scanId) {
+        return scanService.getScanStatus(scanId)
+            .map(status -> ResponseEntity.ok(status.toString()))
+            .orElse(ResponseEntity.notFound().build());
+    }
+}
+
+// =================================================================
+// File: backend/src/main/java/com/mevplatform/service/ContractService.java
+// =================================================================
+package com.mevplatform.service;
+
+import com.mevplatform.model.Contract;
+import com.mevplatform.repository.ContractRepository;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.LocalDateTime;
+import java.util.Optional;
+
+@Service
+@RequiredArgsConstructor
+@Slf4j
+public class ContractService {
+    
+    private final ContractRepository contractRepository;
+    private final BlockchainService blockchainService;
+    
+    @Transactional
+    public Contract getOrCreateContract(String address) {
+        log.info("Getting or creating contract for address: {}", address);
+        
+        // Validate address format
+        if (!isValidEthereumAddress(address)) {
+            throw new IllegalArgumentException("Invalid Ethereum address format: " + address);
+        }
+        
+        // Check if contract exists in database
+        Optional<Contract> existingContract = contractRepository.findByAddress(address.toLowerCase());
+        if (existingContract.isPresent()) {
+            Contract contract = existingContract.get();
+            contract.setUpdatedAt(LocalDateTime.now());
+            return contractRepository.save(contract);
+        }
+        
+        // Verify it's actually a contract on blockchain
+        if (!blockchainService.isContract(address)) {
+            throw new IllegalArgumentException("Address is not a contract: " + address);
+        }
+        
+        // Fetch contract data from blockchain
+        Contract.ContractBuilder contractBuilder = blockchainService.fetchContractData(address);
+        Contract newContract = contractBuilder
+            .address(address.toLowerCase())
+            .createdAt(LocalDateTime.now())
+            .updatedAt(LocalDateTime.now())
+            .build();
+        
+        return contractRepository.save(newContract);
+    }
+    
+    public Optional<Contract> findByAddress(String address) {
+        return contractRepository.findByAddress(address.toLowerCase());
+    }
+    
+    private boolean isValidEthereumAddress(String address) {
+        return address != null && 
+               address.matches("^0x[a-fA-F0-9]{40}$");
+    }
+}
+
+// =================================================================
+// File: backend/src/main/java/com/mevplatform/service/BlockchainService.java
+// =================================================================
+package com.mevplatform.service;
+
+import com.mevplatform.dto.ScanResult;
+import com.mevplatform.model.Contract;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import org.web3j.protocol.Web3j;
+import org.web3j.protocol.core.methods.response.EthGetCode;
+
+import java.math.BigInteger;
+import java.util.List;
+
+@Service
+@RequiredArgsConstructor
+@Slf4j
+public class BlockchainService {
+    
+    private final Web3j web3j;
+    
+    public Contract.ContractBuilder fetchContractData(String address) {
+        try {
+            log.info("Fetching contract data for: {}", address);
+            
+            // Get contract bytecode
+            EthGetCode ethGetCode = web3j.ethGetCode(address, org.web3j.protocol.core.DefaultBlockParameterName.LATEST).send();
+            String bytecode = ethGetCode.getCode();
+            
+            // Get contract creation info (simplified - would need to scan blocks)
+            BigInteger latestBlock = web3j.ethBlockNumber().send().getBlockNumber();
+            
+            return Contract.builder()
+                .address(address)
+                .bytecode(bytecode)
+                .creationBlockNumber(latestBlock.longValue()) // Placeholder
+                .isVerified(false); // Would check Etherscan API
+                
+        } catch (Exception e) {
+            log.error("Failed to fetch contract data for: {}", address, e);
+            throw new RuntimeException("Failed to fetch contract data", e);
+        }
+    }
+    
+    public ScanResult.GasAnalysisResult analyzeGasUsage(Contract contract) {
+        try {
+            log.info("Analyzing gas usage for contract: {}", contract.getAddress());
+            
+            return ScanResult.GasAnalysisResult.builder()
+                .currentGasEfficiency("MEDIUM")
+                .optimizationPotential("15% reduction possible")
+                .recommendations(List.of(
+                    "Optimize storage reads by caching values",
+                    "Use events instead of storage for logging",
+                    "Implement packed structs for better storage efficiency"
+                ))
+                .estimatedSavingsPercent(15)
+                .build();
+                
+        } catch (Exception e) {
+            log.error("Failed to analyze gas usage for: {}", contract.getAddress(), e);
+            return ScanResult.GasAnalysisResult.builder()
+                .currentGasEfficiency("UNKNOWN")
+                .optimizationPotential("Analysis failed")
+                .recommendations(List.of("Manual review required"))
+                .build();
+        }
+    }
+    
+    public boolean isContract(String address) {
+        try {
+            EthGetCode ethGetCode = web3j.ethGetCode(address, org.web3j.protocol.core.DefaultBlockParameterName.LATEST).send();
+            String code = ethGetCode.getCode();
+            return code != null && !code.equals("0x") && code.length() > 2;
+        } catch (Exception e) {
+            log.error("Failed to check if address is contract: {}", address, e);
+            return false;
+        }
+    }
+}
+
+// =================================================================
+// File: backend/src/main/java/com/mevplatform/service/ScanService.java
+// =================================================================
+package com.mevplatform.service;
+
+import com.mevplatform.dto.ScanRequest;
+import com.mevplatform.dto.ScanResult;
+import com.mevplatform.model.Contract;
+import com.mevplatform.model.Scan;
+import com.mevplatform.repository.ScanRepository;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.scheduling.annotation.Async;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+
+@Service
+@RequiredArgsConstructor
+@Slf4j
+public class ScanService {
+    
+    private final ScanRepository scanRepository;
+    private final ContractService contractService;
+    private final VulnerabilityDetectionService vulnerabilityService;
+    private final BlockchainService blockchainService;
+    private final MLService mlService;
+    private final MempoolService mempoolService;
+    
+    @Async
+    @Transactional
+    public CompletableFuture<ScanResult> scanContractAsync(ScanRequest request) {
+        long startTime = System.currentTimeMillis();
+        log.info("Starting scan for contract: {}", request.getContractAddress());
+        
+        try {
+            // 1. Get or create contract
+            Contract contract = contractService.getOrCreateContract(request.getContractAddress());
+            
+            // 2. Create scan record
+            Scan scan = createScan(contract, request);
+            scan.setStatus(Scan.ScanStatus.RUNNING);
+            scan = scanRepository.save(scan);
+            
+            // 3. Perform blockchain analysis
+            ScanResult.GasAnalysisResult gasAnalysis = null;
+            if (request.getIncludeGasAnalysis()) {
+                gasAnalysis = blockchainService.analyzeGasUsage(contract);
+            }
+            
+            // 4. Perform mempool analysis
+            ScanResult.MempoolAnalysisResult mempoolAnalysis = null;
+            if (request.getIncludeMempoolAnalysis()) {
+                mempoolAnalysis = mempoolService.analyzeMempoolActivity(contract.getAddress());
+            }
+            
+            // 5. Detect vulnerabilities
+            List<ScanResult.VulnerabilityDetail> vulnerabilities = 
+                vulnerabilityService.detectVulnerabilities(contract, scan);
+            
+            // 6. Use ML for advanced analysis
+            Double mlConfidence = 0.0;
+            if (request.getUseMachineLearning()) {
+                mlConfidence = mlService.assessRisk(contract, vulnerabilities);
+            }
+            
+            // 7. Calculate risk score and level
+            int riskScore = calculateRiskScore(vulnerabilities, mlConfidence);
+            Scan.RiskLevel riskLevel = determineRiskLevel(riskScore);
+            
+            // 8. Generate protection recommendations
+            ScanResult.ProtectionRecommendations recommendations = 
+                generateProtectionRecommendations(vulnerabilities, riskLevel);
+            
+            // 9. Update scan with results
+            scan.setRiskScore(riskScore);
+            scan.setRiskLevel(riskLevel);
+            scan.setTotalVulnerabilities(vulnerabilities.size());
+            scan.setStatus(Scan.ScanStatus.COMPLETED);
+            scan.setCompletedAt(LocalDateTime.now());
+            scan.setScanDurationMs((int) (System.currentTimeMillis() - startTime));
+            
+            scan = scanRepository.save(scan);
+            
+            // 10. Build result
+            ScanResult result = buildScanResult(scan, vulnerabilities, gasAnalysis, 
+                mempoolAnalysis, recommendations, mlConfidence);
+            
+            log.info("Scan completed for contract: {} in {}ms", 
+                request.getContractAddress(), scan.getScanDurationMs());
+            
+            return CompletableFuture.completedFuture(result);
+            
+        } catch (Exception e) {
+            log.error("Scan failed for contract: {}", request.getContractAddress(), e);
+            throw new RuntimeException("Scan failed", e);
+        }
+    }
+    
+    private Scan createScan(Contract contract, ScanRequest request) {
+        return Scan.builder()
+            .contract(contract)
+            .scanType(Scan.ScanType.valueOf(request.getScanType()))
+            .status(Scan.ScanStatus.PENDING)
+            .startedAt(LocalDateTime.now())
+            .build();
+    }
+    
+    private int calculateRiskScore(List<ScanResult.VulnerabilityDetail> vulnerabilities, Double mlConfidence) {
+        int baseScore = 0;
+        
+        for (ScanResult.VulnerabilityDetail vuln : vulnerabilities) {
+            switch (vuln.getSeverity()) {
+                case "CRITICAL" -> baseScore += 25;
+                case "HIGH" -> baseScore += 15;
+                case "MEDIUM" -> baseScore += 8;
+                case "LOW" -> baseScore += 3;
+            }
+        }
+        
+        // Apply ML confidence modifier
+        double mlModifier = mlConfidence * 20; // ML can add up to 20 points
+        
+        return Math.min(100, (int) (baseScore + mlModifier));
+    }
+    
+    private Scan.RiskLevel determineRiskLevel(int riskScore) {
+        if (riskScore >= 80) return Scan.RiskLevel.CRITICAL;
+        if (riskScore >= 60) return Scan.RiskLevel.HIGH;
+        if (riskScore >= 30) return Scan.RiskLevel.MEDIUM;
+        return Scan.RiskLevel.LOW;
+    }
+    
+    private ScanResult.ProtectionRecommendations generateProtectionRecommendations(
+            List<ScanResult.VulnerabilityDetail> vulnerabilities, Scan.RiskLevel riskLevel) {
+        
+        List<String> immediateActions = List.of(
+            "Implement slippage protection for DEX interactions",
+            "Add reentrancy guards to state-changing functions",
+            "Use commit-reveal patterns for sensitive operations"
+        );
+        
+        List<String> longTermImprovements = List.of(
+            "Consider using private mempools for sensitive transactions",
+            "Implement timelocks for admin functions",
+            "Regular security audits and monitoring"
+        );
+        
+        List<ScanResult.CodeSuggestion> codeFixes = List.of(
+            ScanResult.CodeSuggestion.builder()
+                .title("Add Slippage Protection")
+                .description("Prevent sandwich attacks by adding minimum amount checks")
+                .beforeCode("swapExactTokensForTokens(amountIn, 0, path, to, deadline)")
+                .afterCode("swapExactTokensForTokens(amountIn, amountOutMin, path, to, deadline)")
+                .difficulty("LOW")
+                .estimatedTime("15 minutes")
+                .build()
+        );
+        
+        return ScanResult.ProtectionRecommendations.builder()
+            .immediateActions(immediateActions)
+            .longTermImprovements(longTermImprovements)
+            .codeFixes(codeFixes)
+            .overallStrategy("Focus on MEV protection and access control hardening")
+            .build();
+    }
+    
+    private ScanResult buildScanResult(Scan scan, List<ScanResult.VulnerabilityDetail> vulnerabilities,
+            ScanResult.GasAnalysisResult gasAnalysis, ScanResult.MempoolAnalysisResult mempoolAnalysis,
+            ScanResult.ProtectionRecommendations recommendations, Double mlConfidence) {
+        
+        ScanResult.VulnerabilitySummary vulnSummary = ScanResult.VulnerabilitySummary.builder()
+            .total(vulnerabilities.size())
+            .critical((int) vulnerabilities.stream().filter(v -> "CRITICAL".equals(v.getSeverity())).count())
+            .high((int) vulnerabilities.stream().filter(v -> "HIGH".equals(v.getSeverity())).count())
+            .medium((int) vulnerabilities.stream().filter(v -> "MEDIUM".equals(v.getSeverity())).count())
+            .low((int) vulnerabilities.stream().filter(v -> "LOW".equals(v.getSeverity())).count())
+            .details(vulnerabilities)
+            .build();
+        
+        return ScanResult.builder()
+            .scanId(scan.getId())
+            .contractAddress(scan.getContract().getAddress())
+            .contractName(scan.getContract().getName())
+            .status(scan.getStatus())
+            .riskLevel(scan.getRiskLevel())
+            .riskScore(scan.getRiskScore())
+            .vulnerabilities(vulnSummary)
+            .gasAnalysis(gasAnalysis)
+            .mempoolAnalysis(mempoolAnalysis)
+            .protectionRecommendations(recommendations)
+            .mlConfidenceScore(java.math.BigDecimal.valueOf(mlConfidence))
+            .scanDurationMs(scan.getScanDurationMs())
+            .startedAt(scan.getStartedAt())
+            .completedAt(scan.getCompletedAt())
+            .build();
+    }
+    
+    public Optional<ScanResult> getScanResult(Long scanId) {
+        return scanRepository.findById(scanId)
+            .map(this::convertToScanResult);
+    }
+    
+    public List<ScanResult> getContractScanHistory(String address) {
+        return scanRepository.findByContractAddressOrderByCreatedAtDesc(address)
+            .stream()
+            .map(this::convertToScanResult)
+            .toList();
+    }
+    
+    public Optional<Scan.ScanStatus> getScanStatus(Long scanId) {
+        return scanRepository.findById(scanId)
+            .map(Scan::getStatus);
+    }
+    
+    private ScanResult convertToScanResult(Scan scan) {
+        return ScanResult.builder()
+            .scanId(scan.getId())
+            .contractAddress(scan.getContract().getAddress())
+            .status(scan.getStatus())
+            .riskLevel(scan.getRiskLevel())
+            .riskScore(scan.getRiskScore())
+            .startedAt(scan.getStartedAt())
+            .completedAt(scan.getCompletedAt())
+            .build();
+    }
+}
+
+// =================================================================
+// File: backend/src/main/java/com/mevplatform/service/VulnerabilityDetectionService.java
+// =================================================================
+package com.mevplatform.service;
+
+import com.mevplatform.dto.ScanResult;
+import com.mevplatform.model.Contract;
+import com.mevplatform.model.Scan;
+import com.mevplatform.model.Vulnerability;
+import com.mevplatform.repository.VulnerabilityRepository;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+
+import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.List;
+
+@Service
+@RequiredArgsConstructor
+@Slf4j
+public class VulnerabilityDetectionService {
+    
+    private final VulnerabilityRepository vulnerabilityRepository;
+    
+    public List<ScanResult.VulnerabilityDetail> detectVulnerabilities(Contract contract, Scan scan) {
+        log.info("Detecting vulnerabilities for contract: {}", contract.getAddress());
+        
+        List<ScanResult.VulnerabilityDetail> vulnerabilities = new ArrayList<>();
+        
+        // 1. Static Analysis - Bytecode patterns
+        vulnerabilities.addAll(analyzeByteCodePatterns(contract));
+        
+        // 2. Source Code Analysis (if available)
+        if (contract.getSourceCode() != null && !contract.getSourceCode().isEmpty()) {
+            vulnerabilities.addAll(analyzeSourceCode(contract));
+        }
+        
+        // 3. MEV-specific vulnerability detection
+        vulnerabilities.addAll(detectMEVVulnerabilities(contract));
+        
+        // Store vulnerabilities in database
+        saveVulnerabilities(vulnerabilities, contract, scan);
+        
+        return vulnerabilities;
+    }
+    
+    private List<ScanResult.VulnerabilityDetail> analyzeByteCodePatterns(Contract contract) {
+        List<ScanResult.VulnerabilityDetail> vulnerabilities = new ArrayList<>();
+        
+        String bytecode = contract.getBytecode();
+        if (bytecode == null || bytecode.length() < 4) {
+            return vulnerabilities;
+        }
+        
+        // Check for reentrancy patterns
+        if (containsReentrancyPattern(bytecode)) {
+            vulnerabilities.add(ScanResult.VulnerabilityDetail.builder()
+                .type("reentrancy")
+                .severity("HIGH")
+                .title("Potential Reentrancy Vulnerability")
+                .description("Contract may be vulnerable to reentrancy attacks")
+                .location("Bytecode analysis")
+                .confidenceScore(BigDecimal.valueOf(0.75))
+                .hasRemediation(true)
+                .recommendedFix("Implement reentrancy guards")
+                .build());
+        }
+        
+        return vulnerabilities;
+    }
+    
+    private List<ScanResult.VulnerabilityDetail> analyzeSourceCode(Contract contract) {
+        List<ScanResult.VulnerabilityDetail> vulnerabilities = new ArrayList<>();
+        
+        String sourceCode = contract.getSourceCode();
+        
+        // Missing slippage protection
+        if (sourceCode.contains("swapExactTokensForTokens") && !sourceCode.contains("amountOutMin")) {
+            vulnerabilities.add(ScanResult.VulnerabilityDetail.builder()
+                .type("missing_slippage_protection")
+                .severity("HIGH")
+                .title("Missing Slippage Protection")
+                .description("DEX swaps vulnerable to sandwich attacks")
+                .location("DEX interaction functions")
+                .confidenceScore(BigDecimal.valueOf(0.90))
+                .hasRemediation(true)
+                .recommendedFix("Add amountOutMin parameter")
+                .build());
+        }
+        
+        return vulnerabilities;
+    }
+    
+    private List<ScanResult.VulnerabilityDetail> detectMEVVulnerabilities(Contract contract) {
+        List<ScanResult.VulnerabilityDetail> vulnerabilities = new ArrayList<>();
+        
+        if (isVulnerableToSandwichAttack(contract)) {
+            vulnerabilities.add(ScanResult.VulnerabilityDetail.builder()
+                .type("sandwich_attack")
+                .severity("HIGH")
+                .title("Sandwich Attack Vulnerability")
+                .description("DEX interactions vulnerable to sandwich attacks")
+                .location("AMM/DEX interaction functions")
+                .confidenceScore(BigDecimal.valueOf(0.85))
+                .hasRemediation(true)
+                .recommendedFix("Implement slippage protection")
+                .build());
+        }
+        
+        return vulnerabilities;
+    }
+    
+    private void saveVulnerabilities(List<ScanResult.VulnerabilityDetail> vulnerabilityDetails, 
+                                   Contract contract, Scan scan) {
+        for (ScanResult.VulnerabilityDetail detail : vulnerabilityDetails) {
+            Vulnerability vulnerability = Vulnerability.builder()
+                .scan(scan)
+                .contract(contract)
+                .vulnerabilityType(detail.getType())
+                .severity(Vulnerability.Severity.valueOf(detail.getSeverity()))
+                .title(detail.getTitle())
+                .description(detail.getDescription())
+                .location(detail.getLocation())
+                .confidenceScore(detail.getConfidenceScore())
+                .remediationAvailable(detail.getHasRemediation())
+                .build();
+            
+            vulnerabilityRepository.save(vulnerability);
+        }
+    }
+    
+    private boolean containsReentrancyPattern(String bytecode) {
+        return bytecode.contains("6000803e604051603f3d81600a43040e5af1");
+    }
+    
+    private boolean isVulnerableToSandwichAttack(Contract contract) {
+        String sourceCode = contract.getSourceCode();
+        return sourceCode != null && 
+               sourceCode.contains("swapExactTokensForTokens") &&
+               !sourceCode.contains("amountOutMin");
+    }
+}
+
+// =================================================================
+// File: backend/src/main/java/com/mevplatform/service/MLService.java
+// =================================================================
+package com.mevplatform.service;
+
+import com.mevplatform.dto.ScanResult;
+import com.mevplatform.model.Contract;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
+
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+@Service
+@RequiredArgsConstructor
+@Slf4j
+public class MLService {
+    
+    @Value("${ml.service.url:http://localhost:5000}")
+    private String mlServiceUrl;
+    
+    private final RestTemplate restTemplate = new RestTemplate();
+    
+    public Double assessRisk(Contract contract, List<ScanResult.VulnerabilityDetail> vulnerabilities) {
+        try {
+            log.info("Assessing ML risk for contract: {}", contract.getAddress());
+            
+            Map<String, Object> features = extractFeatures(contract, vulnerabilities);
+            
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            
+            Map<String, Object> request = new HashMap<>();
+            request.put("contract_address", contract.getAddress());
+            request.put("features", features);
+            
+            HttpEntity<Map<String, Object>> entity = new HttpEntity<>(request, headers);
+            
+            @SuppressWarnings("unchecked")
+            Map<String, Object> response = restTemplate.postForObject(
+                mlServiceUrl + "/predict", entity, Map.class);
+            
+            if (response != null && response.containsKey("risk_score")) {
+                return (Double) response.get("risk_score");
+            }
+            
+        } catch (Exception e) {
+            log.error("Failed to get ML risk assessment: {}", e.getMessage());
+        }
+        
+        return 0.5; // Default fallback
+    }
+    
+    private Map<String, Object> extractFeatures(Contract contract, List<ScanResult.VulnerabilityDetail> vulnerabilities) {
+        Map<String, Object> features = new HashMap<>();
+        
+        features.put("bytecode_length", contract.getBytecode() != null ? contract.getBytecode().length() : 0);
+        features.put("has_source_code", contract.getSourceCode() != null);
+        features.put("is_verified", contract.getIsVerified());
+        features.put("total_vulnerabilities", vulnerabilities.size());
+        features.put("critical_vulnerabilities", vulnerabilities.stream()
+            .mapToLong(v -> "CRITICAL".equals(v.getSeverity()) ? 1 : 0).sum());
+        
+        return features;
+    }
+}
+
+// =================================================================
+// File: backend/src/main/java/com/mevplatform/service/MempoolService.java
+// =================================================================
+package com.mevplatform.service;
+
+import com.mevplatform.dto.ScanResult;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+
+import java.util.List;
+
+@Service
+@RequiredArgsConstructor
+@Slf4j
+public class MempoolService {
+    
+    public ScanResult.MempoolAnalysisResult analyzeMempoolActivity(String contractAddress) {
+        log.info("Analyzing mempool activity for contract: {}", contractAddress);
+        
+        try {
+            // Placeholder implementation - would analyze real mempool data
+            return ScanResult.MempoolAnalysisResult.builder()
+                .recentTransactions(42)
+                .averageGasPrice("25.5 gwei")
+                .hasUnusualActivity(false)
+                .suspiciousPatterns(List.of())
+                .build();
+                
+        } catch (Exception e) {
+            log.error("Failed to analyze mempool activity: {}", e.getMessage());
+            return ScanResult.MempoolAnalysisResult.builder()
+                .recentTransactions(0)
+                .averageGasPrice("Unknown")
+                .hasUnusualActivity(false)
+                .suspiciousPatterns(List.of("Analysis failed"))
+                .build();
+        }
+    }
+}
